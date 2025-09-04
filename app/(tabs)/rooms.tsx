@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,10 @@ import {
   StyleSheet,
   TextInput,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { collection, onSnapshot, query } from 'firebase/firestore';
+import { db } from '../../config/firebaseConfig';
 import {
   Bed,
   Search,
@@ -24,80 +26,51 @@ import {
   AlertTriangle,
 } from 'lucide-react-native';
 
+// Define the Room type
+interface Room {
+  id: string;
+  number: string;
+  type: string;
+  status: 'available' | 'occupied' | 'cleaning' | 'maintenance';
+  guest?: string | null;
+  checkOut?: string | null;
+  price: number;
+  amenities: string[];
+  lastCleaned: string;
+}
+
 export default function RoomsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [showRoomModal, setShowRoomModal] = useState(false);
-  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const rooms = [
-    {
-      id: 1,
-      number: '101',
-      type: 'Standard',
-      status: 'occupied',
-      guest: 'John Smith',
-      checkOut: '2024-01-25',
-      price: 120,
-      amenities: ['wifi', 'coffee'],
-      lastCleaned: '2024-01-24',
-    },
-    {
-      id: 2,
-      number: '102',
-      type: 'Standard',
-      status: 'available',
-      guest: null,
-      checkOut: null,
-      price: 120,
-      amenities: ['wifi', 'coffee'],
-      lastCleaned: '2024-01-24',
-    },
-    {
-      id: 3,
-      number: '201',
-      type: 'Premium',
-      status: 'maintenance',
-      guest: null,
-      checkOut: null,
-      price: 180,
-      amenities: ['wifi', 'coffee', 'parking'],
-      lastCleaned: '2024-01-23',
-    },
-    {
-      id: 4,
-      number: '202',
-      type: 'Premium',
-      status: 'cleaning',
-      guest: null,
-      checkOut: null,
-      price: 180,
-      amenities: ['wifi', 'coffee', 'parking'],
-      lastCleaned: '2024-01-24',
-    },
-    {
-      id: 5,
-      number: '301',
-      type: 'Suite',
-      status: 'occupied',
-      guest: 'Sarah Johnson',
-      checkOut: '2024-01-26',
-      price: 250,
-      amenities: ['wifi', 'coffee', 'parking'],
-      lastCleaned: '2024-01-24',
-    },
-    {
-      id: 6,
-      number: '302',
-      type: 'Suite',
-      status: 'available',
-      guest: null,
-      checkOut: null,
-      price: 250,
-      amenities: ['wifi', 'coffee', 'parking'],
-      lastCleaned: '2024-01-24',
-    },
-  ];
+  useEffect(() => {
+    setLoading(true);
+    const q = query(collection(db, 'rooms'));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (querySnapshot) => {
+        const roomsData: Room[] = [];
+        querySnapshot.forEach((doc) => {
+          roomsData.push({ id: doc.id, ...doc.data() } as Room);
+        });
+        setRooms(roomsData.sort((a, b) => a.number.localeCompare(b.number)));
+        setLoading(false);
+      },
+      (err) => {
+        console.error(err);
+        setError('Failed to fetch rooms. Please ensure Firestore is configured correctly.');
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
 
   const filters = [
     { key: 'all', label: 'All Rooms' },
@@ -106,36 +79,6 @@ export default function RoomsScreen() {
     { key: 'cleaning', label: 'Cleaning' },
     { key: 'maintenance', label: 'Maintenance' },
   ];
-
-  const getRoomStatusColor = (status: string) => {
-    switch (status) {
-      case 'available':
-        return '#10B981';
-      case 'occupied':
-        return '#3B82F6';
-      case 'cleaning':
-        return '#F59E0B';
-      case 'maintenance':
-        return '#EF4444';
-      default:
-        return '#6B7280';
-    }
-  };
-
-  const getRoomStatusIcon = (status: string) => {
-    switch (status) {
-      case 'available':
-        return CheckCircle;
-      case 'occupied':
-        return Users;
-      case 'cleaning':
-        return Clock;
-      case 'maintenance':
-        return AlertTriangle;
-      default:
-        return XCircle;
-    }
-  };
 
   const filteredRooms = rooms.filter(room => {
     const matchesSearch = room.number.includes(searchQuery) || 
@@ -212,20 +155,28 @@ export default function RoomsScreen() {
       </ScrollView>
 
       {/* Rooms Grid */}
-      <ScrollView style={styles.roomsList}>
-        <View style={styles.roomsGrid}>
-          {filteredRooms.map((room) => (
-            <RoomCard
-              key={room.id}
-              room={room}
-              onPress={() => {
-                setSelectedRoom(room);
-                setShowRoomModal(true);
-              }}
-            />
-          ))}
+      {loading ? (
+        <ActivityIndicator size="large" color="#059669" style={{ flex: 1 }} />
+      ) : error ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
         </View>
-      </ScrollView>
+      ) : (
+        <ScrollView style={styles.roomsList}>
+          <View style={styles.roomsGrid}>
+            {filteredRooms.map((room) => (
+              <RoomCard
+                key={room.id}
+                room={room}
+                onPress={() => {
+                  setSelectedRoom(room);
+                  setShowRoomModal(true);
+                }}
+              />
+            ))}
+          </View>
+        </ScrollView>
+      )}
 
       {/* Room Details Modal */}
       <Modal
@@ -245,11 +196,27 @@ export default function RoomsScreen() {
   );
 }
 
-function StatusCard({ title, count, color }: {
-  title: string;
-  count: number;
-  color: string;
-}) {
+const getRoomStatusColor = (status: string) => {
+  switch (status) {
+    case 'available': return '#10B981';
+    case 'occupied': return '#3B82F6';
+    case 'cleaning': return '#F59E0B';
+    case 'maintenance': return '#EF4444';
+    default: return '#6B7280';
+  }
+};
+
+const getRoomStatusIcon = (status: string) => {
+  switch (status) {
+    case 'available': return CheckCircle;
+    case 'occupied': return Users;
+    case 'cleaning': return Clock;
+    case 'maintenance': return AlertTriangle;
+    default: return XCircle;
+  }
+};
+
+function StatusCard({ title, count, color }: { title: string; count: number; color: string; }) {
   return (
     <View style={styles.statusCard}>
       <View style={[styles.statusIndicator, { backgroundColor: color }]} />
@@ -259,7 +226,7 @@ function StatusCard({ title, count, color }: {
   );
 }
 
-function RoomCard({ room, onPress }: { room: any; onPress: () => void }) {
+function RoomCard({ room, onPress }: { room: Room; onPress: () => void }) {
   const StatusIcon = getRoomStatusIcon(room.status);
   const statusColor = getRoomStatusColor(room.status);
 
@@ -296,7 +263,7 @@ function RoomCard({ room, onPress }: { room: any; onPress: () => void }) {
   );
 }
 
-function RoomDetailsModal({ room, onClose }: { room: any; onClose: () => void }) {
+function RoomDetailsModal({ room, onClose }: { room: Room; onClose: () => void }) {
   const StatusIcon = getRoomStatusIcon(room.status);
   const statusColor = getRoomStatusColor(room.status);
 
@@ -457,6 +424,7 @@ const styles = StyleSheet.create({
   filterTabs: {
     paddingLeft: 20,
     marginBottom: 20,
+    maxHeight: 40,
   },
   filterTab: {
     paddingHorizontal: 16,
@@ -607,5 +575,16 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#F59E0B',
+    fontSize: 16,
+    textAlign: 'center',
   },
 });
