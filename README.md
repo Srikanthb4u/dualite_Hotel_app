@@ -1,1 +1,1 @@
-# dualite_Hotel_app
+# fintech-app-alpha
